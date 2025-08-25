@@ -325,3 +325,108 @@
     (ok true)
   )
 )
+
+;; READ-ONLY FUNCTIONS - Public data access
+
+(define-read-only (get-contract-owner)
+  (ok CONTRACT-OWNER)
+)
+
+(define-read-only (get-stx-pool)
+  (ok (var-get stx-pool))
+)
+
+(define-read-only (get-proposal-count)
+  (ok (var-get proposal-count))
+)
+
+(define-read-only (get-user-position (user principal))
+  (ok (map-get? UserPositions user))
+)
+
+(define-read-only (get-staking-position (user principal))
+  (ok (map-get? StakingPositions user))
+)
+
+(define-read-only (get-proposal-details (proposal-id uint))
+  (ok (map-get? Proposals { proposal-id: proposal-id }))
+)
+
+(define-read-only (is-contract-paused)
+  (ok (var-get contract-paused))
+)
+
+;; PRIVATE FUNCTIONS - Internal calculations and validations
+
+;; TIER CALCULATION - Dynamic reward optimization
+(define-private (get-tier-info (stake-amount uint))
+  (if (>= stake-amount u10000000) ;; Gold Tier: 10+ STX
+    {
+      tier-level: u3,
+      reward-multiplier: u200,
+    }
+    (if (>= stake-amount u5000000) ;; Silver Tier: 5-9.99 STX
+      {
+        tier-level: u2,
+        reward-multiplier: u150,
+      }
+      {
+        ;; Bronze Tier: 1-4.99 STX
+        tier-level: u1,
+        reward-multiplier: u100,
+      }
+    )
+  )
+)
+
+;; LOCK PERIOD MULTIPLIERS - Time-based reward bonuses
+(define-private (calculate-lock-multiplier (lock-period uint))
+  (if (>= lock-period u8640) ;; 60+ day lock period
+    u150 ;; 1.5x multiplier bonus
+    (if (>= lock-period u4320) ;; 30-59 day lock period
+      u125 ;; 1.25x multiplier bonus
+      u100 ;; No lock bonus (1x)
+    )
+  )
+)
+
+;; REWARDS CALCULATION - Sophisticated yield computation
+(define-private (calculate-rewards
+    (user principal)
+    (blocks uint)
+  )
+  (let (
+      (staking-position (unwrap! (map-get? StakingPositions user) u0))
+      (user-position (unwrap! (map-get? UserPositions user) u0))
+      (stake-amount (get amount staking-position))
+      (base-rate (var-get base-reward-rate))
+      (multiplier (get rewards-multiplier user-position))
+    )
+    ;; Advanced formula: (stake * rate * multiplier * blocks) / blocks_per_year
+    (/ (* (* (* stake-amount base-rate) multiplier) blocks) u14400000)
+  )
+)
+
+;; VALIDATION FUNCTIONS - Input sanitization and security
+
+(define-private (is-valid-description (desc (string-utf8 256)))
+  (and
+    (>= (len desc) u10) ;; Minimum 10 characters for clarity
+    (<= (len desc) u256) ;; Maximum 256 characters for efficiency
+  )
+)
+
+(define-private (is-valid-lock-period (lock-period uint))
+  (or
+    (is-eq lock-period u0) ;; No lock period
+    (is-eq lock-period u4320) ;; 30 days (~4320 blocks)
+    (is-eq lock-period u8640) ;; 60 days (~8640 blocks)
+  )
+)
+
+(define-private (is-valid-voting-period (period uint))
+  (and
+    (>= period u100) ;; Minimum 100 blocks (~16 hours)
+    (<= period u2880) ;; Maximum 2880 blocks (~20 days)
+  )
+)
